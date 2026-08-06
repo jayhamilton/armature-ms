@@ -1,8 +1,8 @@
 package com.addf.gadget.chart.job.domain;
 
-import org.springframework.hateoas.ResourceSupport;
+import org.springframework.hateoas.RepresentationModel;
 
-public class Job extends ResourceSupport {
+public class Job extends RepresentationModel<Job> {
 
     private String master;
     private String jobName;

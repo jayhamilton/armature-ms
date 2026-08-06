@@ -5,7 +5,7 @@ import com.addf.gadget.chart.common.MetricModel;
 import com.addf.gadget.chart.common.Series;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.boot.restclient.RestTemplateBuilder;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
