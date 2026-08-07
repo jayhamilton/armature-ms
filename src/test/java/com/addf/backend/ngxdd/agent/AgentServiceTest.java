@@ -29,4 +29,23 @@ class AgentServiceTest {
                 .anyMatch(part -> "gadget-suggestion".equals(part.componentType())
                         && part.payload().contains("BarChartComponent"));
     }
+
+    @Test
+    void shouldReturnMoveGadgetToolForMoveRequests() {
+        AgentResponse response = agentService.chat(new AgentRequest("move the bar chart to the right", new AgentBoardContext(1L, "Main Board", "overview")));
+
+        assertThat(response.toolCalls()).hasSize(1);
+        assertThat(response.toolCalls().get(0).name()).isEqualTo("move_gadget");
+        assertThat(response.parts())
+                .anyMatch(part -> "gadget-move".equals(part.componentType())
+                        && part.payload().contains("\"direction\":\"right\"")
+                        && part.payload().contains("bar chart"));
+    }
+
+    @Test
+    void shouldNotMisreadMoveRequestAsAddGadget() {
+        AgentResponse response = agentService.chat(new AgentRequest("move the bar chart to the right", new AgentBoardContext(1L, "Main Board", "overview")));
+
+        assertThat(response.toolCalls().get(0).name()).isNotEqualTo("add_gadget");
+    }
 }

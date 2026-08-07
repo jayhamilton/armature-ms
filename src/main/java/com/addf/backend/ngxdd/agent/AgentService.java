@@ -1,6 +1,7 @@
 package com.addf.backend.ngxdd.agent;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,26 @@ public class AgentService {
         String boardTitle = request.boardContext() != null && request.boardContext().boardTitle() != null
                 ? request.boardContext().boardTitle()
                 : "the active dashboard";
+
+        // Checked before the add/create/chart branch below, since a message
+        // like "move the bar chart right" contains "chart" and would
+        // otherwise be misread as an add_gadget request.
+        if (message.contains("move")) {
+            Optional<String> direction = toolRegistry.resolveMoveDirection(message);
+            if (direction.isPresent()) {
+                String gadgetQuery = toolRegistry.extractMoveGadgetQuery(request.message());
+                String payload = "{\"direction\":\"" + direction.get() + "\",\"gadgetQuery\":\"" + gadgetQuery + "\"}";
+                return new AgentResponse(
+                        "I can move " + (gadgetQuery.isBlank() ? "that gadget" : gadgetQuery) + " " + direction.get()
+                                + " on " + boardTitle + ".",
+                        List.of(new ToolCall("move_gadget", payload)),
+                        List.of(
+                                new AgentUiPart(1, "text", "I can move a gadget on the current board.", null, null),
+                                new AgentUiPart(2, "component", null, "gadget-move", payload)
+                        )
+                );
+            }
+        }
 
         if (message.contains("add") || message.contains("create") || message.contains("chart")) {
             String gadgetComponentType = toolRegistry.resolveGadgetComponentType(message);
