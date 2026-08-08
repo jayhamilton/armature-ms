@@ -4,13 +4,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.addf.backend</groupId>
-    <artifactId>ngxdd</artifactId>
+    <artifactId>armature-ms</artifactId>
     <version>0.2.4</version>
 
     <packaging>jar</packaging>
 
-    <name>ngxdd</name>
-    <description>Microservice Backend for the Angular Dynamic Dashboard Framework</description>
+    <name>armature-ms</name>
+    <description>Microservice backend for Armature, the Angular runtime for interfaces that are described rather than built</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>

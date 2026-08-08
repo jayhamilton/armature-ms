@@ -1,13 +1,13 @@
-package com.addf.backend.ngxdd;
+package com.addf.backend.armature;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class NgxddApplication {
+public class ArmatureApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(NgxddApplication.class, args);
+        SpringApplication.run(ArmatureApplication.class, args);
     }
 
 }

@@ -3,7 +3,7 @@
 #
 %global __os_install_post %{nil}
 %define debug_package %{nil}
-%define microservice  ngxdd
+%define microservice  armature-ms
 
 %define service_name  dynamic-dashboard
 
@@ -14,7 +14,7 @@
 Name:	        dashboard	
 Version:	%{version}
 Release:	%{build_number}
-Summary:	NGX Dynamic Dashboard Framework	
+Summary:	Armature	
 
 Group:	Applications	
 License: Catalogic Software 	
@@ -27,8 +27,8 @@ BuildArch: noarch
 
 
 %description
-NGX Dynamic Dashboard Framework
-https://github.com/catalogicsoftware/ngx-dynamic-dashboard-framework
+Armature
+https://github.com/jayhamilton/armature-ms
 
 
 %prep

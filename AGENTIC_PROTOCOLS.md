@@ -7,7 +7,7 @@ Tracking the effort to expose this service's dashboard tools over MCP, A2A, and 
 - Added `org.springframework.ai:spring-ai-bom:2.0.0` (compatible with this project's Spring Boot 4.1.0).
 - Added `spring-ai-starter-mcp-server-webmvc` — MCP server, matches the app's existing servlet/MVC stack. Boots cleanly; autoconfiguration enables tools/resources/prompts/completions capabilities.
 - Added `org.springaicommunity:spring-ai-a2a-server-autoconfigure:0.3.0` — A2A server support (community-maintained, not an official `org.springframework.ai` module).
-- Existing hand-rolled `com.addf.backend.ngxdd.agent` package (`AgentController`, `AgentService`, `AgentToolRegistry`) defines two placeholder tools — `list_boards`, `add_gadget` — behind a custom `/api/agent/chat` REST endpoint, not yet connected to Spring AI.
+- Existing hand-rolled `com.addf.backend.armature.agent` package (`AgentController`, `AgentService`, `AgentToolRegistry`) defines two placeholder tools — `list_boards`, `add_gadget` — behind a custom `/api/agent/chat` REST endpoint, not yet connected to Spring AI.
 
 ## Next steps
 

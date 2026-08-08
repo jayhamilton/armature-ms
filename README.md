@@ -1,8 +1,8 @@
-# ngx-dynamic-dashboard-framework-microservice
+# armature-ms
 
-This is the backend service for the Angular dynamic dashboard framework used by your local UI workspace at:
+This is the backend service for Armature, the Angular UI runtime, in your local workspace at:
 
-[../ngx-dynamic-dashboard-framework](../ngx-dynamic-dashboard-framework)
+[../armature-ui](../armature-ui)
 
 The service is built with Spring Boot 4.1.0 and targets Java 25.
 
@@ -28,7 +28,7 @@ The packaged application will be created in `target/`.
 Start the service locally with:
 
 ```bash
-java -jar target/ngxdd-0.2.4.jar
+java -jar target/armature-ms-0.2.4.jar
 ```
 
 Or, for development mode:

@@ -1,5 +1,5 @@
 [Unit]
-Description=Dynamic Dashboard service 
+Description=Armature microservice
 After=network.target 
 Documentation=
 
@@ -8,7 +8,7 @@ Documentation=
 Type=simple
 
 
-ExecStart=/usr/java/latest/bin/java -Dserver.port=8084  -jar /opt/SPP/lib/ngxdd.jar
+ExecStart=/usr/java/latest/bin/java -Dserver.port=8084  -jar /opt/SPP/lib/armature-ms.jar
 
 
 PermissionsStartOnly=true

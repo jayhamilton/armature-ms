@@ -1,4 +1,4 @@
-package com.addf.backend.ngxdd.agent;
+package com.addf.backend.armature.agent;
 
 import org.junit.jupiter.api.Test;
 
