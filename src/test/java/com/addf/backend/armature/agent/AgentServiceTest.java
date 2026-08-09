@@ -5,6 +5,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +28,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Exercises the real /api/agent/chat path against the locally running Ollama
  * instance. Skips (rather than fails) when Ollama isn't reachable, since this
  * needs an actual model call, not a mock.
+ *
+ * The endpoint now streams a hand-rolled AG-UI event sequence rather than returning
+ * one JSON blob, but since this test uses a real HTTP client against a real embedded
+ * server (not MockMvc), a blocking exchange().expectBody(String.class) still waits for
+ * the whole response - it just now contains multiple "data: {...}" SSE frames instead
+ * of a single JSON object. {@link #parseSseResponse(String)} reconstructs the same
+ * (message, toolCalls, parts) shape the old AgentResponse used to hand back directly.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class AgentServiceTest {
@@ -34,6 +43,7 @@ class AgentServiceTest {
     private int port;
 
     private RestTestClient client;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeAll
     static void ollamaMustBeRunning() {
@@ -63,8 +73,56 @@ class AgentServiceTest {
         }
     }
 
+    private String postAndGetSseBody(AgentRequest request) {
+        return client.post()
+                .uri("/api/agent/chat")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(request)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+    }
+
+    private record ParsedToolCall(String name, String arguments) {
+    }
+
+    private record ParsedRun(String message, List<ParsedToolCall> toolCalls, List<AgentUiPart> parts) {
+    }
+
+    /** Reassembles the AG-UI event stream into the same shape the old single-JSON AgentResponse had. */
+    private ParsedRun parseSseResponse(String sseBody) throws Exception {
+        StringBuilder message = new StringBuilder();
+        Map<String, String> toolCallNamesById = new LinkedHashMap<>();
+        List<ParsedToolCall> toolCalls = new ArrayList<>();
+        List<AgentUiPart> parts = new ArrayList<>();
+
+        for (String frame : sseBody.split("\n\n")) {
+            String line = frame.strip();
+            if (!line.startsWith("data:")) {
+                continue;
+            }
+            JsonNode event = objectMapper.readTree(line.substring("data:".length()).strip());
+            switch (event.path("type").asText()) {
+                case "TEXT_MESSAGE_CONTENT" -> message.append(event.path("delta").asText());
+                case "TOOL_CALL_START" -> toolCallNamesById.put(
+                        event.path("toolCallId").asText(), event.path("toolCallName").asText());
+                case "TOOL_CALL_ARGS" -> toolCalls.add(new ParsedToolCall(
+                        toolCallNamesById.get(event.path("toolCallId").asText()), event.path("delta").asText()));
+                case "CUSTOM" -> {
+                    if ("ui-part".equals(event.path("name").asText())) {
+                        parts.add(objectMapper.treeToValue(event.path("value"), AgentUiPart.class));
+                    }
+                }
+                default -> { }
+            }
+        }
+        return new ParsedRun(message.toString(), toolCalls, parts);
+    }
+
     @Test
-    void addGadgetRequestProducesGadgetSuggestion() {
+    void addGadgetRequestProducesGadgetSuggestion() throws Exception {
         // Grounded with a gadgetLibrary, matching what armature-ui always sends in practice.
         // An ungrounded request is intentionally non-deterministic here (see
         // AgentService's "don't guess, ask" system prompt instruction) — that behavior
@@ -74,27 +132,19 @@ class AgentServiceTest {
                 "Add a bar chart to the dashboard",
                 new AgentBoardContext(1L, "Main Board", "overview"),
                 List.of(new GadgetLibraryEntry("BarChartComponent", "Bar Chart", "Vertical bar chart",
-                        "Add a vertical bar chart to visualize categorical data.", null))
+                        "Add a vertical bar chart to visualize categorical data.", null)),
+                List.of()
         );
 
-        AgentResponse response = client.post()
-                .uri("/api/agent/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody(AgentResponse.class)
-                .returnResult()
-                .getResponseBody();
+        ParsedRun run = parseSseResponse(postAndGetSseBody(request));
 
-        assertThat(response).isNotNull();
-        assertThat(response.message()).isNotBlank();
-        assertThat(response.toolCalls()).anyMatch(call -> "add_gadget".equals(call.name()));
-        assertThat(response.parts()).anyMatch(part -> "gadget-suggestion".equals(part.componentType()));
+        assertThat(run.message()).isNotBlank();
+        assertThat(run.toolCalls()).anyMatch(call -> "add_gadget".equals(call.name()));
+        assertThat(run.parts()).anyMatch(part -> "gadget-suggestion".equals(part.componentType()));
     }
 
     @Test
-    void addGadgetRequestGroundsInProvidedGadgetLibrary() {
+    void addGadgetRequestGroundsInProvidedGadgetLibrary() throws Exception {
         AgentRequest request = new AgentRequest(
                 "Add a pie chart to the dashboard",
                 new AgentBoardContext(1L, "Main Board", "overview"),
@@ -105,147 +155,117 @@ class AgentServiceTest {
                                 "Add a pie chart to show proportional data.", null),
                         new GadgetLibraryEntry("TableComponent", "Table", "Tabular data",
                                 "Add a table to display rows of tabular data.", null)
-                )
+                ),
+                List.of()
         );
 
-        AgentResponse response = client.post()
-                .uri("/api/agent/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody(AgentResponse.class)
-                .returnResult()
-                .getResponseBody();
+        ParsedRun run = parseSseResponse(postAndGetSseBody(request));
 
-        assertThat(response).isNotNull();
-        assertThat(response.toolCalls())
+        assertThat(run.toolCalls())
                 .anyMatch(call -> "add_gadget".equals(call.name()) && call.arguments().contains("PieChartComponent"));
-        assertThat(response.parts())
+        assertThat(run.parts())
                 .anyMatch(part -> "gadget-suggestion".equals(part.componentType())
                         && part.payload().contains("PieChartComponent"));
     }
 
     @Test
-    void listBoardsRequestProducesBoardList() {
+    void listBoardsRequestProducesBoardList() throws Exception {
         AgentRequest request = new AgentRequest(
                 "What boards do I have?",
                 new AgentBoardContext(1L, "Main Board", "overview"),
+                List.of(),
                 List.of()
         );
 
-        AgentResponse response = client.post()
-                .uri("/api/agent/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody(AgentResponse.class)
-                .returnResult()
-                .getResponseBody();
+        ParsedRun run = parseSseResponse(postAndGetSseBody(request));
 
-        assertThat(response).isNotNull();
-        assertThat(response.toolCalls()).anyMatch(call -> "list_boards".equals(call.name()));
-        assertThat(response.parts()).anyMatch(part -> "board-list".equals(part.componentType()));
+        assertThat(run.toolCalls()).anyMatch(call -> "list_boards".equals(call.name()));
+        assertThat(run.parts()).anyMatch(part -> "board-list".equals(part.componentType()));
     }
 
     @Test
-    void removeGadgetRequestProducesGadgetRemoval() {
+    void removeGadgetRequestProducesGadgetRemoval() throws Exception {
         AgentRequest request = new AgentRequest(
                 "Remove the bar chart from the dashboard",
                 new AgentBoardContext(1L, "Main Board", "overview"),
+                List.of(),
                 List.of()
         );
 
-        AgentResponse response = client.post()
-                .uri("/api/agent/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody(AgentResponse.class)
-                .returnResult()
-                .getResponseBody();
+        ParsedRun run = parseSseResponse(postAndGetSseBody(request));
 
-        assertThat(response).isNotNull();
-        assertThat(response.toolCalls()).anyMatch(call -> "remove_gadget".equals(call.name()));
-        assertThat(response.parts()).anyMatch(part -> "gadget-remove".equals(part.componentType()));
+        assertThat(run.toolCalls()).anyMatch(call -> "remove_gadget".equals(call.name()));
+        assertThat(run.parts()).anyMatch(part -> "gadget-remove".equals(part.componentType()));
     }
 
     @Test
-    void addRowRequestProducesRowAdd() {
+    void removeGadgetRequestGroundsQueryInProvidedBoardGadgetTitle() throws Exception {
+        // The model has no access to real board state at all, so without boardGadgets it can
+        // only guess at or paraphrase a title from the user's own words - which then fails the
+        // frontend's title-substring match against the real gadget. Grounding gadgetQuery in an
+        // exact, real title (the same fix already applied to add_gadget via gadgetLibrary) is
+        // what this test confirms actually happens end-to-end against the live model.
+        AgentRequest request = new AgentRequest(
+                "Remove the 2023 starting five knicks bar chart from the dashboard",
+                new AgentBoardContext(1L, "Main Board", "overview"),
+                List.of(),
+                List.of(new BoardGadgetEntry(42L, "Bar Chart"))
+        );
+
+        ParsedRun run = parseSseResponse(postAndGetSseBody(request));
+
+        assertThat(run.toolCalls())
+                .anyMatch(call -> "remove_gadget".equals(call.name()) && call.arguments().contains("Bar Chart"));
+    }
+
+    @Test
+    void addRowRequestProducesRowAdd() throws Exception {
         AgentRequest request = new AgentRequest(
                 "Add a new row to the board",
                 new AgentBoardContext(1L, "Main Board", "overview"),
+                List.of(),
                 List.of()
         );
 
-        AgentResponse response = client.post()
-                .uri("/api/agent/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody(AgentResponse.class)
-                .returnResult()
-                .getResponseBody();
+        ParsedRun run = parseSseResponse(postAndGetSseBody(request));
 
-        assertThat(response).isNotNull();
-        assertThat(response.toolCalls()).anyMatch(call -> "add_row".equals(call.name()));
-        assertThat(response.parts()).anyMatch(part -> "row-add".equals(part.componentType()));
+        assertThat(run.toolCalls()).anyMatch(call -> "add_row".equals(call.name()));
+        assertThat(run.parts()).anyMatch(part -> "row-add".equals(part.componentType()));
     }
 
     @Test
-    void changeRowLayoutRequestProducesRowLayout() {
+    void changeRowLayoutRequestProducesRowLayout() throws Exception {
         AgentRequest request = new AgentRequest(
                 "Change the first row to a three column layout",
                 new AgentBoardContext(1L, "Main Board", "overview"),
+                List.of(),
                 List.of()
         );
 
-        AgentResponse response = client.post()
-                .uri("/api/agent/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody(AgentResponse.class)
-                .returnResult()
-                .getResponseBody();
+        ParsedRun run = parseSseResponse(postAndGetSseBody(request));
 
-        assertThat(response).isNotNull();
-        assertThat(response.toolCalls())
+        assertThat(run.toolCalls())
                 .anyMatch(call -> "change_row_layout".equals(call.name())
                         && call.arguments().contains("\"rowIndex\":0")
                         && call.arguments().contains("three_col_equal"));
-        assertThat(response.parts()).anyMatch(part -> "row-layout".equals(part.componentType()));
+        assertThat(run.parts()).anyMatch(part -> "row-layout".equals(part.componentType()));
     }
 
     @Test
     void addGadgetRequestPopulatesStructuredPropertyValues() throws Exception {
-        ObjectMapper objectMapper = new ObjectMapper();
-
         AgentRequest request = new AgentRequest(
                 "Create a bar chart of average points per game for the starting five",
                 new AgentBoardContext(1L, "Main Board", "overview"),
-                List.of(barChartLibraryEntry())
+                List.of(barChartLibraryEntry()),
+                List.of()
         );
 
-        AgentResponse response = client.post()
-                .uri("/api/agent/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody(AgentResponse.class)
-                .returnResult()
-                .getResponseBody();
+        ParsedRun run = parseSseResponse(postAndGetSseBody(request));
 
-        assertThat(response).isNotNull();
-        AgentUiPart suggestion = response.parts().stream()
+        AgentUiPart suggestion = run.parts().stream()
                 .filter(part -> "gadget-suggestion".equals(part.componentType()))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("No gadget-suggestion part in response: " + response.parts()));
+                .orElseThrow(() -> new AssertionError("No gadget-suggestion part in response: " + run.parts()));
 
         assertThat(suggestion.payload()).contains("propertyValues");
 

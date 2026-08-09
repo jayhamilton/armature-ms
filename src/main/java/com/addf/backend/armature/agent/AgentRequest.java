@@ -13,6 +13,10 @@ public record AgentRequest(
         @Schema(description = "The frontend's gadget library (from library.json), so the assistant can "
                 + "ground add_gadget suggestions in what's actually available. Omitted or empty for "
                 + "non-UI callers.")
-        List<GadgetLibraryEntry> gadgetLibrary
+        List<GadgetLibraryEntry> gadgetLibrary,
+        @Schema(description = "The gadgets currently on the active board, so the assistant can ground "
+                + "move_gadget/remove_gadget's gadgetQuery in a real title instead of guessing. Omitted "
+                + "or empty for non-UI callers or an empty board.")
+        List<BoardGadgetEntry> boardGadgets
 ) {
 }
