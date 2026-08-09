@@ -9,7 +9,8 @@ public record AgentUiPart(
         String type,
         @Schema(description = "Plain text content, present when type is 'text'.") String text,
         @Schema(description = "Card kind, present when type is 'component'.", example = "gadget-suggestion",
-                allowableValues = {"gadget-suggestion", "board-list", "a2ui-card"})
+                allowableValues = {"gadget-suggestion", "board-list", "gadget-move", "gadget-remove", "row-add",
+                        "row-layout", "a2ui-card"})
         String componentType,
         @Schema(description = "JSON-encoded payload for the given componentType.",
                 example = "{\"gadgetComponentType\":\"BarChartComponent\"}")

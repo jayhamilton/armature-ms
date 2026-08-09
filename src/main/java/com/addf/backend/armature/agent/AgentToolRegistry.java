@@ -1,93 +1,128 @@
 package com.addf.backend.armature.agent;
 
-import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+/**
+ * The dashboard assistant's tools, callable by whatever ChatModel is
+ * configured and, once registered as a bean, visible over MCP. The backend
+ * has no access to real board/gadget state — that lives in the browser's
+ * localStorage — so each tool just records the intent (componentType,
+ * direction, gadget query) as a {@link ToolCall}/{@link AgentUiPart} pair for
+ * the frontend to resolve against the real board.
+ */
 @Component
 public class AgentToolRegistry {
 
-    /**
-     * Keyword -> real componentType from the frontend's GADGET_REGISTRY /
-     * library.json, so add_gadget suggests a gadget the UI can actually render.
-     */
-    private static final Map<String, String> KEYWORD_TO_GADGET_COMPONENT_TYPE = new LinkedHashMap<>();
-    static {
-        KEYWORD_TO_GADGET_COMPONENT_TYPE.put("chart", "BarChartComponent");
-        KEYWORD_TO_GADGET_COMPONENT_TYPE.put("table", "TableComponent");
-        KEYWORD_TO_GADGET_COMPONENT_TYPE.put("number", "NumberCardComponent");
-        KEYWORD_TO_GADGET_COMPONENT_TYPE.put("stat", "StatisticComponent");
-        KEYWORD_TO_GADGET_COMPONENT_TYPE.put("text", "TextComponent");
+    private static final Set<String> VALID_DIRECTIONS = Set.of("left", "right", "up", "down");
+
+    private static final Set<String> VALID_LAYOUT_STRUCTURES = Set.of(
+            "one_col", "one_col_full", "two_col_equal", "two_col_narrow_wide", "two_col_wide_narrow", "three_col_equal"
+    );
+
+    private final AgentToolCallRecorder recorder;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public AgentToolRegistry(AgentToolCallRecorder recorder) {
+        this.recorder = recorder;
     }
 
-    /**
-     * Keyword -> canonical move direction. The frontend does the real gadget
-     * lookup against the current board, so this only needs to recognize intent.
-     */
-    private static final Map<String, String> KEYWORD_TO_DIRECTION = new LinkedHashMap<>();
-    static {
-        KEYWORD_TO_DIRECTION.put("left", "left");
-        KEYWORD_TO_DIRECTION.put("right", "right");
-        KEYWORD_TO_DIRECTION.put("up", "up");
-        KEYWORD_TO_DIRECTION.put("higher", "up");
-        KEYWORD_TO_DIRECTION.put("top", "up");
-        KEYWORD_TO_DIRECTION.put("down", "down");
-        KEYWORD_TO_DIRECTION.put("lower", "down");
-        KEYWORD_TO_DIRECTION.put("bottom", "down");
-    }
-
-    /**
-     * Stripped out of a "move" message to leave (approximately) the gadget's
-     * name behind — the frontend matches whatever remains against the real
-     * board's gadget titles, so this only needs to be roughly right.
-     */
-    private static final Set<String> MOVE_QUERY_STOPWORDS = new LinkedHashSet<>(Arrays.asList(
-            "move", "the", "to", "please", "gadget", "widget", "a", "an",
-            "left", "right", "up", "down", "higher", "lower", "top", "bottom"
-    ));
-
-    public List<ToolDefinition> listTools() {
-        return List.of(
-                new ToolDefinition("list_boards", "List the available dashboards."),
-                new ToolDefinition("add_gadget", "Add a gadget such as a chart or statistic to the current board."),
-                new ToolDefinition("move_gadget", "Move a named gadget left, right, up, or down on the current board.")
+    @Tool(name = "list_boards", description = "List the available dashboards so the user can inspect or switch between them.")
+    public String listBoards() {
+        recorder.record(
+                new ToolCall("list_boards", "{}"),
+                new AgentUiPart(recorder.nextPartId(), "component", null, "board-list", "{}")
         );
+        return "Showing the list of available boards.";
     }
 
-    /**
-     * Maps a lowercased user message to a real gadget componentType, falling
-     * back to a chart when a keyword match isn't found but a gadget was implied.
-     */
-    public String resolveGadgetComponentType(String lowerCaseMessage) {
-        return KEYWORD_TO_GADGET_COMPONENT_TYPE.entrySet().stream()
-                .filter(entry -> lowerCaseMessage.contains(entry.getKey()))
-                .map(Map.Entry::getValue)
-                .findFirst()
-                .orElse("BarChartComponent");
+    @Tool(name = "add_gadget", description = "Add a gadget to the current board.")
+    public String addGadget(
+            @ToolParam(description = "The gadget component type to add, chosen from the available gadget "
+                    + "types listed in the system prompt.")
+            String componentType
+    ) {
+        String payload = toJson(Map.of("gadgetComponentType", componentType));
+        recorder.record(
+                new ToolCall("add_gadget", toJson(Map.of("type", componentType))),
+                new AgentUiPart(recorder.nextPartId(), "component", null, "gadget-suggestion", payload)
+        );
+        return "Suggested adding a " + componentType + " gadget to the board.";
     }
 
-    public Optional<String> resolveMoveDirection(String lowerCaseMessage) {
-        return KEYWORD_TO_DIRECTION.entrySet().stream()
-                .filter(entry -> lowerCaseMessage.contains(entry.getKey()))
-                .map(Map.Entry::getValue)
-                .findFirst();
+    @Tool(name = "move_gadget", description = "Move a named gadget left, right, up, or down on the current board.")
+    public String moveGadget(
+            @ToolParam(description = "The gadget's name or approximate title, as the user referred to it.")
+            String gadgetQuery,
+            @ToolParam(description = "The direction to move the gadget. Must be one of: left, right, up, down.")
+            String direction
+    ) {
+        String resolvedDirection = VALID_DIRECTIONS.contains(direction) ? direction : "right";
+        Map<String, Object> payloadValues = new LinkedHashMap<>();
+        payloadValues.put("direction", resolvedDirection);
+        payloadValues.put("gadgetQuery", gadgetQuery);
+        String payload = toJson(payloadValues);
+        recorder.record(
+                new ToolCall("move_gadget", payload),
+                new AgentUiPart(recorder.nextPartId(), "component", null, "gadget-move", payload)
+        );
+        return "Moving " + gadgetQuery + " " + resolvedDirection + ".";
     }
 
-    /**
-     * Approximates the gadget's name by stripping move/direction stopwords
-     * out of the original message, e.g. "move the bar chart to the right"
-     * -> "bar chart".
-     */
-    public String extractMoveGadgetQuery(String message) {
-        return Arrays.stream(message.split("\\W+"))
-                .filter(word -> !word.isBlank() && !MOVE_QUERY_STOPWORDS.contains(word.toLowerCase()))
-                .collect(Collectors.joining(" "));
+    @Tool(name = "remove_gadget", description = "Remove a named gadget from the current board.")
+    public String removeGadget(
+            @ToolParam(description = "The gadget's name or approximate title, as the user referred to it.")
+            String gadgetQuery
+    ) {
+        String payload = toJson(Map.of("gadgetQuery", gadgetQuery));
+        recorder.record(
+                new ToolCall("remove_gadget", payload),
+                new AgentUiPart(recorder.nextPartId(), "component", null, "gadget-remove", payload)
+        );
+        return "Removing " + gadgetQuery + ".";
+    }
+
+    @Tool(name = "add_row", description = "Add a new empty row to the current board, so gadgets can be placed into it.")
+    public String addRow() {
+        recorder.record(
+                new ToolCall("add_row", "{}"),
+                new AgentUiPart(recorder.nextPartId(), "component", null, "row-add", "{}")
+        );
+        return "Adding a new row to the board.";
+    }
+
+    @Tool(name = "change_row_layout", description = "Change the column layout of a specific row on the current board.")
+    public String changeRowLayout(
+            @ToolParam(description = "The zero-based index of the row to change (0 is the first row).")
+            Integer rowIndex,
+            @ToolParam(description = "The column layout. Must be one of: one_col, one_col_full, two_col_equal, "
+                    + "two_col_narrow_wide, two_col_wide_narrow, three_col_equal.")
+            String structure
+    ) {
+        String resolvedStructure = VALID_LAYOUT_STRUCTURES.contains(structure) ? structure : "two_col_equal";
+        Map<String, Object> payloadValues = new LinkedHashMap<>();
+        payloadValues.put("rowIndex", rowIndex);
+        payloadValues.put("structure", resolvedStructure);
+        String payload = toJson(payloadValues);
+        recorder.record(
+                new ToolCall("change_row_layout", payload),
+                new AgentUiPart(recorder.nextPartId(), "component", null, "row-layout", payload)
+        );
+        return "Changing row " + rowIndex + " to " + resolvedStructure + ".";
+    }
+
+    private String toJson(Map<String, Object> values) {
+        try {
+            return objectMapper.writeValueAsString(values);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to encode tool payload " + values, e);
+        }
     }
 }
