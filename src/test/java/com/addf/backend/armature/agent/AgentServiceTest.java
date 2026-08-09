@@ -253,14 +253,28 @@ class AgentServiceTest {
         JsonNode propertyValues = payload.path("propertyValues");
         assertThat(propertyValues.has("chartData")).isTrue();
 
-        // chartData is itself a JSON array serialized as a string - confirm it actually parses.
-        JsonNode chartData = objectMapper.readTree(propertyValues.path("chartData").asText());
+        // chartData is now a real nested array in the schema (not a string) - confirmed
+        // enforced end-to-end through the actual application code and live model, not
+        // just the curl experiments that established this schema shape gets enforced.
+        JsonNode chartData = propertyValues.path("chartData");
         assertThat(chartData.isArray()).isTrue();
+        assertThat(chartData.size()).isGreaterThan(0);
+        assertThat(chartData.get(0).has("name")).isTrue();
+        assertThat(chartData.get(0).has("value")).isTrue();
     }
 
     private static GadgetLibraryEntry barChartLibraryEntry() {
         Map<String, Object> stringSchema = Map.of("type", "string");
         Map<String, Object> booleanSchema = Map.of("type", "boolean");
+        Map<String, Object> chartDataSchema = Map.of(
+                "type", "array",
+                "items", Map.of(
+                        "type", "object",
+                        "properties", Map.of("name", Map.of("type", "string"), "value", Map.of("type", "number")),
+                        "required", List.of("name", "value"),
+                        "additionalProperties", false
+                )
+        );
         List<GadgetProperty> configProperties = List.of(
                 new GadgetProperty("title", "Bar Chart", true, stringSchema),
                 new GadgetProperty("subtitle", "", false, stringSchema),
@@ -271,8 +285,9 @@ class AgentServiceTest {
                 new GadgetProperty("chartYAxisLabel", "Value", false, stringSchema)
         );
         List<GadgetProperty> dataProperties = List.of(
-                new GadgetProperty("chartData", "[{\"name\":\"Alpha\",\"value\":850},{\"name\":\"Beta\",\"value\":750}]",
-                        false, stringSchema)
+                new GadgetProperty("chartData",
+                        List.of(Map.of("name", "Alpha", "value", 850), Map.of("name", "Beta", "value", 750)),
+                        false, chartDataSchema)
         );
         return new GadgetLibraryEntry(
                 "BarChartComponent", "Bar Chart", "Vertical bar chart",

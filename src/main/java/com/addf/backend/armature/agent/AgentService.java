@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -76,16 +77,31 @@ public class AgentService {
                     user to specify the exact componentType instead.
                     """;
         }
-        // componentType is deliberately the only thing on the line before the colon —
-        // an earlier "componentType (title): description" format got echoed back
-        // verbatim as the componentType argument (e.g. "BarChartComponent (Bar Chart)"),
-        // which then fails to match the library on both this call's enrichment lookup
-        // and the frontend's findGadgetDefinition.
-        String entries = gadgetLibrary.stream()
+        // The exact-value list and the descriptions are deliberately kept in two
+        // separate sections rather than one "componentType: description" line each.
+        // Putting them on the same line, in any punctuation/format tried so far
+        // (with a title in parens, with a bare colon), has gotten echoed back
+        // verbatim as the componentType argument more than once (e.g.
+        // "BarChartComponent (Bar Chart)", "BarChartComponent: Add a vertical bar
+        // chart..."), which then fails to match the library on both this call's
+        // enrichment lookup and the frontend's findGadgetDefinition. A short, quoted,
+        // comma-separated enum for the value the model must reproduce exactly, with
+        // the longer descriptions clearly separated below as reference-only, is much
+        // harder to accidentally concatenate into the value itself.
+        String quotedTypes = gadgetLibrary.stream()
+                .map(entry -> "\"%s\"".formatted(entry.componentType()))
+                .collect(Collectors.joining(", "));
+        String descriptions = gadgetLibrary.stream()
                 .map(entry -> "- %s: %s".formatted(entry.componentType(), entry.description()))
                 .collect(Collectors.joining("\n"));
-        return "\nAvailable gadget types for add_gadget (use componentType exactly as written, "
-                + "before the colon):\n" + entries + "\n";
+        return """
+
+                For add_gadget, componentType must be exactly one of these values, with no other text
+                added: %s
+
+                What each one is (for context only — do not include this text in componentType):
+                %s
+                """.formatted(quotedTypes, descriptions);
     }
 
     /**
@@ -170,11 +186,23 @@ public class AgentService {
                 Object type = property.schema().get("type");
                 prompt.append("- ").append(property.key()).append(" (").append(type).append(")");
                 if (property.value() != null) {
-                    prompt.append(", example default format: ").append(property.value());
+                    // property.value() can now be a nested array/object (e.g. chartData), not just a
+                    // primitive - Object's default toString() renders those as Java map/list syntax
+                    // (e.g. "[{name=Alpha, value=850}]"), not valid JSON, which would actively mislead
+                    // the model about the format it's supposed to produce.
+                    prompt.append(", example default format: ").append(propertyValueAsJson(property.value()));
                 }
                 prompt.append("\n");
             }
         }
         return prompt.toString();
+    }
+
+    private String propertyValueAsJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            return String.valueOf(value);
+        }
     }
 }

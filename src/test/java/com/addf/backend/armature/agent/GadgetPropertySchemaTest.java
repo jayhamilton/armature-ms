@@ -21,8 +21,7 @@ class GadgetPropertySchemaTest {
                         new GadgetProperty("title", "Bar Chart", true, Map.of("type", "string")),
                         new GadgetProperty("chartShowXAxis", true, false, Map.of("type", "boolean")),
                         new GadgetProperty("chartMinRadius", 3, false, Map.of("type", "number")),
-                        new GadgetProperty("tags", null, false, Map.of("type", "array", "items", Map.of("type", "string"))),
-                        new GadgetProperty("chartData", "[{\"name\":\"Alpha\",\"value\":850}]", false, Map.of("type", "string"))
+                        new GadgetProperty("tags", null, false, Map.of("type", "array", "items", Map.of("type", "string")))
                 )))
         );
 
@@ -34,7 +33,44 @@ class GadgetPropertySchemaTest {
         assertThat(schema.path("properties").path("chartMinRadius").path("type").asText()).isEqualTo("number");
         assertThat(schema.path("properties").path("tags").path("type").asText()).isEqualTo("array");
         assertThat(schema.path("properties").path("tags").path("items").path("type").asText()).isEqualTo("string");
-        assertThat(schema.path("properties").path("chartData").path("type").asText()).isEqualTo("string");
+    }
+
+    @Test
+    void copiesDoublyNestedSchemaThrough() throws Exception {
+        // Matches the real shape chartData now uses for series-grouped charts
+        // (Area/Line): array of {name, series: array of {name, value}}.
+        Map<String, Object> simpleItem = Map.of(
+                "type", "object",
+                "properties", Map.of("name", Map.of("type", "string"), "value", Map.of("type", "number")),
+                "required", List.of("name", "value"),
+                "additionalProperties", false
+        );
+        Map<String, Object> seriesItem = Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "name", Map.of("type", "string"),
+                        "series", Map.of("type", "array", "items", simpleItem)
+                ),
+                "required", List.of("name", "series"),
+                "additionalProperties", false
+        );
+        GadgetLibraryEntry entry = new GadgetLibraryEntry(
+                "AreaChartComponent", "Area Chart", "Multi-series area chart", "Add a smooth area chart.",
+                List.of(new GadgetPropertyPage(List.of(
+                        new GadgetProperty("chartData", List.of(), false, Map.of("type", "array", "items", seriesItem))
+                )))
+        );
+
+        JsonNode schema = objectMapper.readTree(GadgetPropertySchema.forEntry(entry, objectMapper));
+
+        JsonNode chartData = schema.path("properties").path("chartData");
+        assertThat(chartData.path("type").asText()).isEqualTo("array");
+        assertThat(chartData.path("items").path("type").asText()).isEqualTo("object");
+        JsonNode nestedSeries = chartData.path("items").path("properties").path("series");
+        assertThat(nestedSeries.path("type").asText()).isEqualTo("array");
+        assertThat(nestedSeries.path("items").path("properties").path("value").path("type").asText())
+                .isEqualTo("number");
+        assertThat(chartData.path("items").path("additionalProperties").asBoolean()).isFalse();
     }
 
     @Test
