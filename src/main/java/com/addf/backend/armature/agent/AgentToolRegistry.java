@@ -46,7 +46,8 @@ public class AgentToolRegistry {
     private static final Set<String> VALID_DIRECTIONS = Set.of("left", "right", "up", "down");
 
     private static final Set<String> VALID_LAYOUT_STRUCTURES = Set.of(
-            "one_col", "one_col_full", "two_col_equal", "two_col_narrow_wide", "two_col_wide_narrow", "three_col_equal"
+            "one_col", "one_col_full", "two_col_equal", "two_col_narrow_wide", "two_col_wide_narrow",
+            "three_col_equal", "masonry"
     );
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -143,7 +144,7 @@ public class AgentToolRegistry {
             @ToolParam(description = "The zero-based index of the row to change (0 is the first row).")
             Integer rowIndex,
             @ToolParam(description = "The column layout. Must be one of: one_col, one_col_full, two_col_equal, "
-                    + "two_col_narrow_wide, two_col_wide_narrow, three_col_equal.")
+                    + "two_col_narrow_wide, two_col_wide_narrow, three_col_equal, masonry.")
             String structure,
             ToolContext toolContext
     ) {
