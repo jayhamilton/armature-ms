@@ -29,11 +29,19 @@ import org.springframework.stereotype.Component;
  * {@code ScopeNotActiveException} there. {@code ToolContext} carries a plain
  * object reference through Spring AI's own call stack instead, so it works
  * regardless of which thread ends up invoking the tool.
+ *
+ * <p>Every method checks {@link AgentToolCallRecorder#canRecord()} first and
+ * bails out with {@link #ALREADY_ACTED_MESSAGE} if another tool already acted
+ * this request - see that method's javadoc for why.
  */
 @Component
 public class AgentToolRegistry {
 
     public static final String RECORDER_KEY = "agentToolCallRecorder";
+
+    private static final String ALREADY_ACTED_MESSAGE = "Not doing this - only one board change is allowed "
+            + "per user message, and one was already made this turn. Tell the user to ask again in a "
+            + "separate message if they want this too.";
 
     private static final Set<String> VALID_DIRECTIONS = Set.of("left", "right", "up", "down");
 
@@ -46,6 +54,9 @@ public class AgentToolRegistry {
     @Tool(name = "list_boards", description = "List the available dashboards so the user can inspect or switch between them.")
     public String listBoards(ToolContext toolContext) {
         AgentToolCallRecorder recorder = recorder(toolContext);
+        if (!recorder.canRecord()) {
+            return ALREADY_ACTED_MESSAGE;
+        }
         recorder.record(
                 new ToolCall("list_boards", "{}"),
                 new AgentUiPart(recorder.nextPartId(), "component", null, "board-list", "{}")
@@ -61,6 +72,9 @@ public class AgentToolRegistry {
             ToolContext toolContext
     ) {
         AgentToolCallRecorder recorder = recorder(toolContext);
+        if (!recorder.canRecord()) {
+            return ALREADY_ACTED_MESSAGE;
+        }
         String payload = toJson(Map.of("gadgetComponentType", componentType));
         recorder.record(
                 new ToolCall("add_gadget", toJson(Map.of("type", componentType))),
@@ -78,6 +92,9 @@ public class AgentToolRegistry {
             ToolContext toolContext
     ) {
         AgentToolCallRecorder recorder = recorder(toolContext);
+        if (!recorder.canRecord()) {
+            return ALREADY_ACTED_MESSAGE;
+        }
         String resolvedDirection = VALID_DIRECTIONS.contains(direction) ? direction : "right";
         Map<String, Object> payloadValues = new LinkedHashMap<>();
         payloadValues.put("direction", resolvedDirection);
@@ -97,6 +114,9 @@ public class AgentToolRegistry {
             ToolContext toolContext
     ) {
         AgentToolCallRecorder recorder = recorder(toolContext);
+        if (!recorder.canRecord()) {
+            return ALREADY_ACTED_MESSAGE;
+        }
         String payload = toJson(Map.of("gadgetQuery", gadgetQuery));
         recorder.record(
                 new ToolCall("remove_gadget", payload),
@@ -108,6 +128,9 @@ public class AgentToolRegistry {
     @Tool(name = "add_row", description = "Add a new empty row to the current board, so gadgets can be placed into it.")
     public String addRow(ToolContext toolContext) {
         AgentToolCallRecorder recorder = recorder(toolContext);
+        if (!recorder.canRecord()) {
+            return ALREADY_ACTED_MESSAGE;
+        }
         recorder.record(
                 new ToolCall("add_row", "{}"),
                 new AgentUiPart(recorder.nextPartId(), "component", null, "row-add", "{}")
@@ -125,6 +148,9 @@ public class AgentToolRegistry {
             ToolContext toolContext
     ) {
         AgentToolCallRecorder recorder = recorder(toolContext);
+        if (!recorder.canRecord()) {
+            return ALREADY_ACTED_MESSAGE;
+        }
         String resolvedStructure = VALID_LAYOUT_STRUCTURES.contains(structure) ? structure : "two_col_equal";
         Map<String, Object> payloadValues = new LinkedHashMap<>();
         payloadValues.put("rowIndex", rowIndex);

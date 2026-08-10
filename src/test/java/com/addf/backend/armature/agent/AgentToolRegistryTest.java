@@ -40,6 +40,24 @@ class AgentToolRegistryTest {
         assertThat(recorder.parts().get(0).componentType()).isEqualTo("board-list");
     }
 
+    /**
+     * The model isn't reliably following "only call one tool per message" as a
+     * prompt instruction alone (see AgentToolCallRecorder#canRecord's javadoc), so
+     * this caps it deterministically: whichever tool records first wins, and any
+     * other tool call attempted afterward in the same request is a no-op that
+     * returns a deflection message instead of silently doing something unrequested.
+     */
+    @Test
+    void secondToolCallInSameRequestIsDeflectedRegardlessOfWhichToolItIs() {
+        toolRegistry.removeGadget("bar chart", toolContext);
+        String result = toolRegistry.addRow(toolContext);
+
+        assertThat(result).contains("only one board change is allowed");
+        assertThat(recorder.toolCalls()).hasSize(1);
+        assertThat(recorder.toolCalls().get(0).name()).isEqualTo("remove_gadget");
+        assertThat(recorder.parts()).hasSize(1);
+    }
+
     @Test
     void addGadgetRecordsGadgetSuggestionForValidComponentType() throws Exception {
         toolRegistry.addGadget("TableComponent", toolContext);

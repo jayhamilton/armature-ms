@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Mono;
@@ -38,6 +39,12 @@ public class AgentService {
     private final ChatClient chatClient;
     private final ChatClient structuredOutputChatClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // Which provider is currently backing the primary ChatModel bean (see
+    // application.properties' spring.ai.model.chat) - the schema-constrained
+    // structured-output call below is Ollama-specific and checks this before running.
+    @Value("${spring.ai.model.chat:ollama}")
+    private String activeChatModel;
 
     public AgentService(ChatClient.Builder chatClientBuilder, ChatModel chatModel, AgentToolRegistry toolRegistry) {
         this.chatClient = chatClientBuilder.defaultTools(toolRegistry).build();
@@ -81,6 +88,11 @@ public class AgentService {
                 Use the list_boards, add_gadget, move_gadget, remove_gadget, add_row, and change_row_layout
                 tools when the user's request implies inspecting boards, or adding, moving, removing,
                 adding a row, or changing a row's layout. Otherwise just answer conversationally.
+                Only call a tool that directly corresponds to something the user's message explicitly
+                asked for in this turn. Never call a different, unrelated tool alongside it "while you're
+                at it," to be helpful, or because it seems related - e.g. removing a gadget the user asked
+                to remove does not also call move_gadget, add_row, or list_boards unless the user asked for
+                that too, in the same message.
                 You don't know how many rows the current board has or what's in each one. If the user
                 doesn't say which row change_row_layout should target, ask them to clarify (e.g. "the first
                 row" means rowIndex 0) rather than guessing.
@@ -107,6 +119,13 @@ public class AgentService {
                 .system(systemPrompt)
                 .user(request.message())
                 .toolContext(Map.of(AgentToolRegistry.RECORDER_KEY, recorder))
+                // Tried .options(OllamaChatOptions.builder().disableThinking()) here, on the
+                // theory that it might reduce spurious extra tool calls the same way it fixed
+                // structured output's runaway generation below - measured empirically instead
+                // (8/8 repeated "remove the bar chart" requests spuriously also called
+                // list_boards or add_row, vs ~2/5 with thinking left on), so it made this worse,
+                // not better. Left enabled here; the spurious-tool-call problem needs a different
+                // fix (see AgentToolRegistry's per-request call cap, tracked separately).
                 .stream()
                 .content()
                 .subscribe(
@@ -231,10 +250,22 @@ public class AgentService {
      * error, unparseable output, no matching library entry) is caught and
      * logged — the part's payload is simply left with just its componentType,
      * which is exactly today's behavior, so this only ever adds capability.
+     *
+     * <p>The schema constraint itself ({@code OllamaChatOptions.outputSchema}) is
+     * Ollama-specific grammar-decoding, with no equivalent wired up for other
+     * providers - skips itself entirely when Ollama isn't the active chat model
+     * (see {@link #activeChatModel}), degrading to the same library-defaults
+     * fallback as any other failure here rather than sending Ollama-only options
+     * to whatever provider is actually active.
      */
     private void enrichAddGadgetPartsWithPropertyValues(AgentRequest request, List<AgentUiPart> parts) {
         List<GadgetLibraryEntry> library = request.gadgetLibrary();
         if (library == null || library.isEmpty()) {
+            return;
+        }
+        if (!"ollama".equals(activeChatModel)) {
+            log.debug("Skipping structured property-value enrichment - active chat model is '{}', not ollama",
+                    activeChatModel);
             return;
         }
 

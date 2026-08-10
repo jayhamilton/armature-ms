@@ -36,6 +36,23 @@ public class AgentToolCallRecorder {
     }
 
     /**
+     * Whether a tool is still allowed to record an action this request. Prompt
+     * instructions alone ("only call a tool that directly corresponds to what was
+     * asked") were empirically unreliable against qwen3.5:4b - repeated identical
+     * requests sometimes also triggered an unrelated extra tool call (list_boards,
+     * add_row) the user never asked for. {@link AgentToolRegistry}'s tool methods
+     * check this before doing any work, so at most one board-affecting action is
+     * ever recorded per user message, regardless of how many tools the model tries
+     * to call. A genuine multi-part request ("add a chart and remove another one")
+     * degrades to only the first action happening, with the model expected to tell
+     * the user to ask again for the rest - an acceptable trade for not silently
+     * doing things nobody asked for.
+     */
+    public boolean canRecord() {
+        return toolCalls.isEmpty();
+    }
+
+    /**
      * Records the tool call for the post-stream enrichment pass (unchanged) and
      * immediately fires the matching TOOL_CALL_START/ARGS/END events — this is
      * the real moment Spring AI invoked the tool mid-stream, not a simulation.
