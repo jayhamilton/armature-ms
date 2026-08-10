@@ -1,3 +1,5 @@
+<img src="https://github.com/jayhamilton/armature-ms/blob/main/documentation/logo.png?raw=true" alt="Armature logo" width="96">
+
 # armature-ms
 
 This is the backend service for Armature, the Angular UI runtime, in your local workspace at:

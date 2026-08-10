@@ -23,7 +23,6 @@ dist/
 nbdist/
 .nb-gradle/
 
-documentation/
 ### Java template
 # Compiled class file
 *.class
