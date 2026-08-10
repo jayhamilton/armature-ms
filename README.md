@@ -43,6 +43,18 @@ The API will be available at:
 
 - `http://localhost:8080`
 
+### Model provider
+
+The assistant defaults to a local [Ollama](https://ollama.com) model (`qwen3.5:4b`, see `spring.ai.ollama.chat.model` in `application.properties`), so it runs with no API key or account. An Anthropic-backed alternative is available for comparison, toggled via environment variables:
+
+```bash
+export AGENT_CHAT_MODEL=anthropic   # defaults to "ollama" if unset
+export ANTHROPIC_API_KEY=<your key>
+./mvnw spring-boot:run
+```
+
+Only one provider is ever active at a time — Spring AI's autoconfiguration for each is mutually exclusive on `spring.ai.model.chat`, not a fallback chain, so this is a manual toggle for comparison rather than automatic failover. The schema-constrained structured-output call used to auto-populate `add_gadget`'s property values is Ollama-specific and quietly skips itself when a different provider is active.
+
 ## API documentation
 
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
@@ -57,15 +69,15 @@ Everything below is live on `http://localhost:8080` today (confirmed against `/a
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/hello` | Sanity-check endpoint |
-| POST | `/api/agent/chat` | Chat with the dashboard assistant; see [Swagger UI](#api-documentation) for the request/response shape |
+| POST | `/api/agent/chat` | Chat with the dashboard assistant — streams a hand-rolled AG-UI event sequence over SSE (see [Model provider](#model-provider)) rather than returning one JSON response; see [Swagger UI](#api-documentation) for the request/event shape |
 | GET | `/swagger-ui.html` | Redirects to the Swagger UI |
 | GET | `/v3/api-docs` | OpenAPI spec, JSON |
 | GET | `/v3/api-docs.yaml` | OpenAPI spec, YAML |
 | GET | `/actuator` | Actuator index |
 | GET | `/actuator/health` | Liveness/readiness check |
 | GET | `/actuator/info` | App name, description, version |
-| GET | `/sse` | Spring AI MCP server transport (SSE) — present because `spring-ai-starter-mcp-server-webmvc` is on the classpath, but no `@Tool` beans are registered yet, so it has nothing to serve |
-| POST | `/mcp/message` | Companion MCP transport endpoint to `/sse`, same caveat |
+| GET | `/sse` | Spring AI MCP server transport (SSE) — exposes the 6 registered `@Tool` methods (`list_boards`, `add_gadget`, `move_gadget`, `remove_gadget`, `add_row`, `change_row_layout`) to MCP clients |
+| POST | `/mcp/message` | Companion MCP transport endpoint to `/sse` |
 
 ## Project dependencies
 
@@ -77,21 +89,11 @@ This microservice uses the following core dependencies:
 - Jackson and JSON Path for JSON processing and payload handling
 - Spring REST Docs support for API documentation tests
 
-## Enhancement phases for the framework
+## Agent and model integration status
 
-The agent/chat experience is being introduced in three incremental phases so the framework grows in a modular way:
+The conversational assistant is real, not a stub: Ollama-backed tool-calling (`list_boards`, `add_gadget`, `move_gadget`, `remove_gadget`, `add_row`, `change_row_layout`) and schema-constrained structured output are both done, and `/api/agent/chat` streams real AG-UI events as the model actually generates them rather than returning one blocking response. An Anthropic-backed alternative is wired in for comparison (see [Model provider](#model-provider)), though only as a manual toggle — automatic fallback, MCP client support (consuming third-party servers), and MCP Apps rendered in the panel are not yet built.
 
-### Phase 1: Structured chat and assistant responses
-
-This phase adds a structured chat contract between the frontend and backend. Instead of the assistant replying with plain text only, the backend returns typed actions, suggested UI payloads, and follow-up prompts. This improves the framework by making the chat experience predictable, extensible, and easier to render in the dashboard UI.
-
-### Phase 2: Dashboard and gadget actions
-
-This phase teaches the assistant to create boards, suggest gadgets, and apply dashboard changes directly in the running UI. The framework becomes more capable because users can move from conversation to action without manually navigating the configuration panels. This makes the dashboard more conversational and reduces friction for common tasks.
-
-### Phase 3: MCP app and tool integration
-
-This phase adds support for surfacing MCP-backed apps and tools as part of the assistant response. The framework becomes more powerful because the chat panel can present external capabilities, app-like experiences, and tool-driven workflows alongside dashboard content. This creates a path to richer automation and more extensible integrations without forcing all functionality into the core UI.
+See [`MODEL_INTEGRATION.md`](MODEL_INTEGRATION.md) for the full phased plan with a status note on each phase, and [`AGENTIC_PROTOCOLS.md`](AGENTIC_PROTOCOLS.md) for MCP/A2A/AG-UI protocol specifics.
 
 ## Notes
 
