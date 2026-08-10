@@ -54,6 +54,8 @@ Model candidates worth benchmarking against the real tool set: Qwen3.5 4B, Nemot
 
 **Exit criteria:** `/api/agent/chat` returns a model-generated response that actually calls a tool, with no API key anywhere in the config.
 
+**Status: done**, and hardened past the original exit criteria. Real usage against qwen3.5:4b surfaced a reliability gap the exit criteria didn't cover: the model would sometimes call an extra, unrelated tool alongside the one actually requested (e.g. "remove the bar chart" also triggering `list_boards` or `add_row`, unprompted). Prompt instructions ("only call a tool that directly corresponds to what was asked") reduced but didn't eliminate this; disabling the model's extended thinking made it measurably worse, not better. What actually fixed it is a deterministic cap in `AgentToolCallRecorder`: at most one tool call is recorded per request regardless of how many the model attempts, with any further attempt returning a deflection message instead of silently acting. This trades away genuine multi-part requests in one message ("add a chart and remove another") for never doing something nobody asked for - see `AgentToolCallRecorder.canRecord()`'s javadoc.
+
 ## Phase 2: Structured output as the correctness mechanism
 
 This is what makes a 4B model viable rather than merely cheap, and it deserves to be built early rather than bolted on.
@@ -69,6 +71,8 @@ OllamaChatOptions.builder()
 Tokens that would break the shape are never sampled, so a malformed gadget config becomes structurally impossible instead of merely unlikely. The equivalent on the hosted providers is their structured output or tool-schema mode, so this needs a small abstraction rather than an Ollama-specific call.
 
 **Exit criteria:** a fuzz run of a few hundred generations produces zero configs that fail `library.json` validation.
+
+**Status: done**, scoped to Ollama rather than built as a cross-provider abstraction yet - `AgentService.enrichAddGadgetPartsWithPropertyValues` calls `OllamaChatOptions.outputSchema()` directly. No fuzz harness was built; correctness has been exercised via the live-model integration tests in `AgentServiceTest` instead (e.g. `addGadgetRequestPopulatesStructuredPropertyValues` asserting the real nested `chartData` shape). Also needed `.disableThinking()` alongside `outputSchema()` - qwen3.5:4b's default extended chain-of-thought fought the grammar constraint into runaway generation otherwise (observed directly: 6000+ tokens vs ~2-3s with thinking disabled, for the same prompt).
 
 ## Phase 3: Provider abstraction and fallback
 
@@ -90,6 +94,8 @@ Two traps to watch:
 - **Fallback silently becoming the default.** If Ollama is misconfigured in production, a fallback chain will quietly send every request to a paid API. Instrument the fallback rate and alarm on it.
 
 **Exit criteria:** killing Ollama mid-session degrades to the hosted provider without a user-visible error, and the switch is visible in metrics.
+
+**Status: partial.** `spring-ai-starter-model-anthropic` is on the classpath alongside Ollama's, and `spring.ai.model.chat` (env var `AGENT_CHAT_MODEL`, plus `ANTHROPIC_API_KEY`) selects which one autoconfigures - confirmed directly against Spring AI 2.0's actual bytecode (`@ConditionalOnProperty(name = "spring.ai.model.chat", havingValue = "ollama", matchIfMissing = true)` on `OllamaChatAutoConfiguration`, mirrored on Anthropic's with `havingValue = "anthropic"`), settling the "needs verification" trap above: this is a genuine either/or, not "several active at once" - only one `ChatModel` bean ever exists. That's as far as this phase went. Still missing everything the exit criteria actually asks for: no delegating/fallback `ChatClient`, no retry or circuit breaker, no `demo`/`prod` profiles, no OpenAI-compatible starter, no fallback-rate metrics. What exists today is a boot-time manual toggle for comparing providers, not runtime fallback - killing Ollama mid-session currently just errors rather than degrading to Anthropic. Built this far specifically to test whether a larger hosted model is more reliable at strict tool-call scoping than the small local one (see Phase 1's status note).
 
 ## Phase 4: MCP client, the "apps developed by others" piece
 
@@ -124,8 +130,14 @@ The work here is mostly security rather than plumbing: iframe sandbox attributes
 
 As already captured in `AGENTIC_PROTOCOLS.md`. AG-UI replaces the hand-rolled streaming on `/api/agent/chat`; A2UI renders at the `a2ui-card` seam. Both are more valuable once phases 1 through 3 give the assistant something real to stream.
 
+**Status: done**, taken deliberately out of this order - moved up ahead of phases 3 through 5 by explicit request, before Phase 3 was more than partially built. No official AG-UI Java SDK turned out to be resolvable from Maven Central under any candidate groupId, so AG-UI's event shapes are hand-rolled plain records (`com.addf.backend.armature.agent.agui`) rather than a dependency, serialized over `SseEmitter`. `/api/agent/chat` now streams real token-level deltas from whichever `ChatModel` is active (RUN_STARTED, TEXT_MESSAGE_START/CONTENT/END, TOOL_CALL_START/ARGS/END, CUSTOM ui-part events, RUN_FINISHED) instead of the old blocking single-JSON response. A2UI's component-catalog rendering (`A2uiComponent` on the backend, `A2uiRendererComponent` on the frontend) is built and working, but not currently wired to anything live - `add_gadget` briefly required a confirm/cancel click through it, then went back to auto-applying immediately after the extra click proved to be unwanted friction in practice. Kept in place for a future flow that genuinely needs a confirm step, e.g. a destructive remove.
+
+Real streaming also surfaced a bug worth recording here since it's not specific to any one phase: `AgentToolCallRecorder` was `@RequestScope`, which is ThreadLocal-backed and broke the moment tool execution could happen on a Reactor worker thread with no servlet request bound to it (`ScopeNotActiveException`, silently dropped by Reactor, hanging every request until the client's read timeout). Fixed by making it a plain per-request object threaded through `AgentToolRegistry`'s tool methods via Spring AI's `ToolContext` instead of relying on request-scope machinery - worth remembering for any future `@RequestScope` bean that a streaming/reactive call path might touch off the original request thread.
+
 ## Suggested order
 
 Phases 1 and 2 together produce a working, demoable, key-free assistant, and they're the ones that most change how the project reads to a newcomer. Phase 3 is what makes it deployable. Phase 4 is the one that delivers the "consolidate other applications" thesis, and it's the most interesting to write about once it works.
 
 Phase 5 carries the most risk relative to its demo value and should follow rather than lead.
+
+**Actual order taken so far:** 1, 2, 6, then partial 3 (this doc's suggested order for 1 and 2 held; 6 was pulled forward ahead of 3-5 by explicit request, and 3 only got as far as the provider toggle described in its status note above). 4 and 5 remain entirely unstarted.
