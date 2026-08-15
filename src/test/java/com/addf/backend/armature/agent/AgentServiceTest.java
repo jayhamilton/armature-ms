@@ -209,7 +209,7 @@ class AgentServiceTest {
                 "Remove the 2023 starting five knicks bar chart from the dashboard",
                 new AgentBoardContext(1L, "Main Board", "overview"),
                 List.of(),
-                List.of(new BoardGadgetEntry(42L, "Bar Chart"))
+                List.of(new BoardGadgetEntry(42L, "Bar Chart", "BarChartComponent"))
         );
 
         ParsedRun run = parseSseResponse(postAndGetSseBody(request));

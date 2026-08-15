@@ -76,7 +76,7 @@ Everything below is live on `http://localhost:8080` today (confirmed against `/a
 | GET | `/actuator` | Actuator index |
 | GET | `/actuator/health` | Liveness/readiness check |
 | GET | `/actuator/info` | App name, description, version |
-| GET | `/sse` | Spring AI MCP server transport (SSE) — exposes the 6 registered `@Tool` methods (`list_boards`, `add_gadget`, `move_gadget`, `remove_gadget`, `add_row`, `change_row_layout`) to MCP clients |
+| GET | `/sse` | Spring AI MCP server transport (SSE) — exposes 7 tools to MCP clients: 6 board-mutation `@Tool` methods (`list_boards`, `add_gadget`, `move_gadget`, `remove_gadget`, `add_row`, `change_row_layout`) plus `present_board_summary`, a read-only `@McpTool` that renders as an MCP App (see below) |
 | POST | `/mcp/message` | Companion MCP transport endpoint to `/sse` |
 
 ## Project dependencies
@@ -91,7 +91,9 @@ This microservice uses the following core dependencies:
 
 ## Agent and model integration status
 
-The conversational assistant is real, not a stub: Ollama-backed tool-calling (`list_boards`, `add_gadget`, `move_gadget`, `remove_gadget`, `add_row`, `change_row_layout`) and schema-constrained structured output are both done, and `/api/agent/chat` streams real AG-UI events as the model actually generates them rather than returning one blocking response. An Anthropic-backed alternative is wired in for comparison (see [Model provider](#model-provider)), though only as a manual toggle — automatic fallback, MCP client support (consuming third-party servers), and MCP Apps rendered in the panel are not yet built.
+The conversational assistant is real, not a stub: Ollama-backed tool-calling (`list_boards`, `add_gadget`, `move_gadget`, `remove_gadget`, `add_row`, `change_row_layout`) and schema-constrained structured output are both done, and `/api/agent/chat` streams real AG-UI events as the model actually generates them rather than returning one blocking response. An Anthropic-backed alternative is wired in for comparison (see [Model provider](#model-provider)), though only as a manual toggle — automatic fallback is not yet built.
+
+`present_board_summary` is Armature's first [MCP App](https://modelcontextprotocol.io/extensions/apps/overview) (SEP-1865): calling it over MCP returns an interactive HTML view (a clickable, expandable list of the current board's gadgets) that an MCP Apps-capable host renders inline, instead of the plain text/JSON-intent replies the mutation tools return — deliberately demonstrating that distinction. It's built with `@McpTool`/`@McpResource` (`spring-ai-mcp-annotations`, transitively on the classpath via `spring-ai-starter-mcp-server-webmvc` since 2.0.0-M3), a separate registration path from the `@Tool`/`ToolCallbackProvider` mechanism the other 6 tools use — both compose onto the same MCP server. See `com.addf.backend.armature.mcpapp.BoardSummaryApp`. Because boards only ever lived in the browser's `localStorage`, the tool reads from `BoardSnapshotStore`, an in-memory cache of the `boardGadgets` payload `armature-ui` already sends on every `/api/agent/chat` message — so a board must be chatted with at least once from the panel before an external client can see it. MCP client support (consuming third-party servers) and rendering MCP Apps inside Armature's own panel are not yet built.
 
 See [`MODEL_INTEGRATION.md`](MODEL_INTEGRATION.md) for the full phased plan with a status note on each phase, and [`AGENTIC_PROTOCOLS.md`](AGENTIC_PROTOCOLS.md) for MCP/A2A/AG-UI protocol specifics.
 

@@ -15,9 +15,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class AgentController {
 
     private final AgentService agentService;
+    private final BoardSnapshotStore boardSnapshotStore;
 
-    public AgentController(AgentService agentService) {
+    public AgentController(AgentService agentService, BoardSnapshotStore boardSnapshotStore) {
         this.agentService = agentService;
+        this.boardSnapshotStore = boardSnapshotStore;
     }
 
     @Operation(
@@ -28,6 +30,7 @@ public class AgentController {
     )
     @PostMapping(value = "/api/agent/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chat(@RequestBody AgentRequest request) {
+        boardSnapshotStore.update(request.boardContext(), request.boardGadgets());
         SseEmitter emitter = new SseEmitter(0L);
         agentService.chatStream(request, emitter);
         return emitter;
