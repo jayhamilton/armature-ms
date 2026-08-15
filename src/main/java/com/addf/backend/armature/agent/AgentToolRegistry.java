@@ -52,7 +52,10 @@ public class AgentToolRegistry {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Tool(name = "list_boards", description = "List the available dashboards so the user can inspect or switch between them.")
+    @Tool(name = "list_boards", description = "List the names of all the user's separate dashboards/boards, "
+            + "so they can switch to a different one. Only for a request about which boards exist or "
+            + "switching boards (e.g. \"what boards do I have\", \"switch to my other board\"). Never for a "
+            + "question about what's on the current board - that is show_board_summary, a different tool.")
     public String listBoards(ToolContext toolContext) {
         AgentToolCallRecorder recorder = recorder(toolContext);
         if (!recorder.canRecord()) {
@@ -124,6 +127,36 @@ public class AgentToolRegistry {
                 new AgentUiPart(recorder.nextPartId(), "component", null, "gadget-remove", payload)
         );
         return "Removing " + gadgetQuery + ".";
+    }
+
+    // Named differently from BoardSummaryApp's @McpTool "present_board_summary" -
+    // both register onto the same MCP server (McpSyncServer), which rejects two
+    // tools sharing one name even though this and that one use different
+    // registration mechanisms (@Tool/ToolCallbackProvider vs @McpTool). This tool's
+    // own name is only what the internal ChatClient sees; the payload below points
+    // the frontend at the real MCP tool ("present_board_summary") by name.
+    @Tool(name = "show_board_summary", description = "Show an interactive, read-only summary of the "
+            + "gadgets currently on THIS one board the user is looking at - e.g. \"what's on my board\", "
+            + "\"show me my board\", \"what gadgets do I have\", \"review my board\". This is about the "
+            + "contents of the current board, not the list of separate boards (that's list_boards) and not "
+            + "a request to add, move, remove, or otherwise change anything (that's a different tool too). "
+            + "Calling this never changes the board.")
+    public String presentBoardSummary(ToolContext toolContext) {
+        AgentToolCallRecorder recorder = recorder(toolContext);
+        if (!recorder.canRecord()) {
+            return ALREADY_ACTED_MESSAGE;
+        }
+        // Deliberately just the tool name, not a ui:// URI or any board data - the
+        // frontend (McpAppService) discovers present_board_summary's resourceUri via
+        // its own MCP tools/list call and fetches fresh structuredContent via its own
+        // tools/call, both for real over the wire, rather than this method
+        // duplicating BoardSummaryApp's logic or smuggling stale data through here.
+        String payload = toJson(Map.of("toolName", "present_board_summary"));
+        recorder.record(
+                new ToolCall("show_board_summary", "{}"),
+                new AgentUiPart(recorder.nextPartId(), "mcp-app", null, null, payload)
+        );
+        return "Showing what's on the board.";
     }
 
     @Tool(name = "add_row", description = "Add a new empty row to the current board, so gadgets can be placed into it.")
