@@ -93,9 +93,33 @@ This microservice uses the following core dependencies:
 
 The conversational assistant is real, not a stub: Ollama-backed tool-calling (`list_boards`, `add_gadget`, `move_gadget`, `remove_gadget`, `add_row`, `change_row_layout`) and schema-constrained structured output are both done, and `/api/agent/chat` streams real AG-UI events as the model actually generates them rather than returning one blocking response. An Anthropic-backed alternative is wired in for comparison (see [Model provider](#model-provider)), though only as a manual toggle — automatic fallback is not yet built.
 
-`present_board_summary` is Armature's first [MCP App](https://modelcontextprotocol.io/extensions/apps/overview) (SEP-1865): calling it over MCP returns an interactive HTML view (a clickable, expandable list of the current board's gadgets) that an MCP Apps-capable host renders inline, instead of the plain text/JSON-intent replies the mutation tools return — deliberately demonstrating that distinction. It's built with `@McpTool`/`@McpResource` (`spring-ai-mcp-annotations`, transitively on the classpath via `spring-ai-starter-mcp-server-webmvc` since 2.0.0-M3), a separate registration path from the `@Tool`/`ToolCallbackProvider` mechanism the other 6 tools use — both compose onto the same MCP server. See `com.addf.backend.armature.mcpapp.BoardSummaryApp`. Because boards only ever lived in the browser's `localStorage`, the tool reads from `BoardSnapshotStore`, an in-memory cache of the `boardGadgets` payload `armature-ui` already sends on every `/api/agent/chat` message — so a board must be chatted with at least once from the panel before an external client can see it. MCP client support (consuming third-party servers) and rendering MCP Apps inside Armature's own panel are not yet built.
-
 See [`MODEL_INTEGRATION.md`](MODEL_INTEGRATION.md) for the full phased plan with a status note on each phase, and [`AGENTIC_PROTOCOLS.md`](AGENTIC_PROTOCOLS.md) for MCP/A2A/AG-UI protocol specifics.
+
+## MCP Apps
+
+`present_board_summary` is Armature's first [MCP App](https://modelcontextprotocol.io/extensions/apps/overview) — [SEP-1865](https://modelcontextprotocol.io/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp), final since 2026-01-26. Where a normal MCP tool call returns text or JSON, an MCP App tool also declares a `ui://` resource: an interactive HTML view that the *host* (not Armature) renders inline, sandboxed in an iframe, communicating back over a JSON-RPC/postMessage bridge.
+
+Armature already exposes 6 board-mutation tools over MCP (`list_boards`, `add_gadget`, `move_gadget`, `remove_gadget`, `add_row`, `change_row_layout`) — all plain text/JSON-intent replies. `present_board_summary` is deliberately different: it's read-only (never changes the board) and renders as a clickable, expandable gadget list instead of text. Calling both from the same MCP client side by side is the point — it demonstrates the tool-type distinction, not just that MCP Apps work in isolation.
+
+**How it's built:** `com.addf.backend.armature.mcpapp.BoardSummaryApp` pairs an `@McpTool` with a `@McpResource` (`spring-ai-mcp-annotations`, on the classpath transitively via `spring-ai-starter-mcp-server-webmvc` since Spring AI 2.0.0-M3) — a separate registration path from the `@Tool`/`ToolCallbackProvider` mechanism the other 6 tools use, though both compose onto the same MCP server without conflict. The UI resource (`src/main/resources/mcp-apps/board-summary.html`) is a single self-contained file — a `ui://` resource has no base URL for a relative `<script src>` to resolve against once a host loads it — with the official [`@modelcontextprotocol/ext-apps`](https://github.com/modelcontextprotocol/ext-apps) browser SDK inlined as a base64 `data:` URI rather than hand-rolled, so it speaks the real postMessage protocol.
+
+**Data source:** boards only ever lived in the browser's `localStorage` (see [Currently exposed endpoints](#currently-exposed-endpoints) — there's no board persistence in this service). `BoardSnapshotStore` caches the `boardGadgets` list `armature-ui` already sends with every `/api/agent/chat` message, in memory, keyed by board id. **This means a board must be chatted with at least once from Armature's own panel before an external MCP client can see it** — the tool shows "no board synced yet" until then.
+
+**Try it:**
+
+1. Start this service (`./mvnw spring-boot:run`) and `armature-ui`, then send at least one chat message from Armature's assistant panel so a board snapshot exists.
+2. Point any [MCP Apps-capable host](https://modelcontextprotocol.io/extensions/client-matrix) — Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, Archestra.AI — at `http://localhost:8080/sse` as a remote MCP server (check that host's own docs for the exact config syntax for a URL-based server).
+3. Ask it to mutate the board ("add a bar chart") — a plain reply. Then ask it to show the board ("what's on my dashboard?") — `present_board_summary` renders inline.
+
+For quick protocol-level testing without a full host, the [MCP Inspector CLI](https://github.com/modelcontextprotocol/inspector) works without any config:
+
+```bash
+npx @modelcontextprotocol/inspector --cli http://localhost:8080/sse --method tools/list
+npx @modelcontextprotocol/inspector --cli http://localhost:8080/sse --method tools/call --tool-name present_board_summary
+npx @modelcontextprotocol/inspector --cli http://localhost:8080/sse --method resources/read --uri "ui://armature/board-summary.html"
+```
+
+**Not yet built:** consuming a third-party server's MCP App (Armature as an MCP *client*), and rendering any MCP App — Armature's own or a third party's — inside Armature's own chat panel (needs `armature-ui` to become an MCP Apps *host*). See `MODEL_INTEGRATION.md`'s Phase 4.5 section for the full account, including bugs hit along the way worth knowing about before extending this.
 
 ## Notes
 
