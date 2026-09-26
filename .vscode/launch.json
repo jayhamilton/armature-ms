@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-ArmatureApplication<armature-ms>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "com.addf.backend.armature.ArmatureApplication",
+            "projectName": "armature-ms",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}
